@@ -6,7 +6,8 @@ import { JOINT_ANGLES } from "@/lib/pose/landmarks";
 import { drawSkeleton } from "@/lib/pose/draw";
 import { detectReps, extractSeries } from "@/lib/pose/reps";
 import { measureProportions } from "@/lib/pose/proportions";
-import { computeFrameLoads, extractLoadSeries, peakLoads, loadColor } from "@/lib/pose/loads";
+import { loadColor } from "@/lib/pose/loads";
+import { computeDynamics, dynamicsFrame, dynamicsSeries } from "@/lib/pose/dynamics";
 import { nearestRegion } from "@/lib/pose/regions";
 import { atlasForRegion } from "@/lib/anatomy/atlas";
 import { computeMetrics, type MovementMetrics } from "@/lib/analysis/metrics";
@@ -109,18 +110,16 @@ export default function ReviewStudio() {
   const series = useMemo(() => extractSeries(frames, primaryJoint), [frames, primaryJoint]);
   const reps = useMemo(() => detectReps(frames, primaryJoint), [frames, primaryJoint]);
   const proportions = useMemo(() => measureProportions(frames), [frames]);
-  const peaks = useMemo(() => peakLoads(frames, bodyMass), [frames, bodyMass]);
+  const dyn = useMemo(() => computeDynamics(frames, bodyMass), [frames, bodyMass]);
+  const peaks = dyn.peak;
   const loadSeries = useMemo(
-    () => extractLoadSeries(frames, primaryJoint, bodyMass),
-    [frames, primaryJoint, bodyMass],
+    () => dynamicsSeries(frames, dyn, primaryJoint),
+    [frames, dyn, primaryJoint],
   );
 
   const idx = Math.min(selectedIndex, frames.length - 1);
   const frame = frames[idx];
-  const currentLoads = useMemo(
-    () => computeFrameLoads(frame?.world ?? [], bodyMass),
-    [frame, bodyMass],
-  );
+  const currentLoads = useMemo(() => dynamicsFrame(dyn, idx), [dyn, idx]);
   const duration = frames.length ? frames[frames.length - 1].t / 1000 : 0;
 
   const selectedPain = painMarkers.find((m) => m.id === selectedPainId) ?? null;
@@ -636,7 +635,7 @@ export default function ReviewStudio() {
                       chartMetric === m ? "bg-white text-stone-800 shadow-sm" : "text-stone-500 hover:text-stone-700"
                     }`}
                   >
-                    {m === "angle" ? "Angle" : "Est. load"}
+                    {m === "angle" ? "Angle" : "Joint load"}
                   </button>
                 ))}
               </div>
@@ -664,7 +663,7 @@ export default function ReviewStudio() {
                 selectedIndex={idx}
                 onSeek={scrubTo}
                 label={jointLabel(primaryJoint)}
-                metricLabel={chartMetric === "angle" ? "angle" : "estimated load"}
+                metricLabel={chartMetric === "angle" ? "angle" : "net joint moment"}
                 unit={chartMetric === "angle" ? "°" : " N·m"}
               />
             ) : (
@@ -672,6 +671,15 @@ export default function ReviewStudio() {
                 {chartMetric === "load"
                   ? "Not enough of the body was tracked to estimate load for this joint."
                   : "Not enough movement in this joint to chart. Pick another joint."}
+              </p>
+            )}
+            {chartMetric === "load" && loadSeries.valid && (
+              <p className="mt-2 text-[11px] leading-relaxed text-stone-400">
+                Net joint moment via inverse dynamics — includes how fast you move, not
+                just posture{dyn.inertiaFactor[primaryJoint] > 1.15
+                  ? `. Motion adds ~${dyn.inertiaFactor[primaryJoint].toFixed(1)}× over gravity alone at peak.`
+                  : "."}{" "}
+                A relative estimate from one camera, not a force reading.
               </p>
             )}
           </div>

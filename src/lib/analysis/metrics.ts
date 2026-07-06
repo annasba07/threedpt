@@ -1,6 +1,6 @@
 import { JOINT_ANGLES } from "../pose/landmarks";
 import { extractSeries, detectReps } from "../pose/reps";
-import { computeFrameLoads, peakLoads } from "../pose/loads";
+import { computeDynamics } from "../pose/dynamics";
 import type { PainMarker, RecordedFrame } from "../pose/types";
 
 /**
@@ -135,10 +135,9 @@ export function computeMetrics(
     let loadPct: number | undefined;
     let nearPeak: boolean | undefined;
     if (jointId && f) {
-      const loads = computeFrameLoads(f.world, bodyMass);
-      const peaks = peakLoads(frames, bodyMass);
-      const v = loads[jointId];
-      const pk = peaks[jointId];
+      const dyn = computeDynamics(frames, bodyMass);
+      const v = dyn.moments[jointId]?.[painMarker.frame] ?? null;
+      const pk = dyn.peak[jointId];
       if (v != null) {
         loadNm = v;
         if (pk > 0) {
