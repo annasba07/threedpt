@@ -4,6 +4,13 @@
 
 Everything runs **on-device**. The camera feed never leaves your machine.
 
+<p align="center">
+  <img src="docs/hero-read.png" alt="The Read — a one-glance movement analysis: a graded verdict, a hero metric, three vitals, and the body reconstructed in 3D" width="48%">
+  &nbsp;
+  <img src="docs/hero-lab.png" alt="The Lab — an interactive 3D instrument with scrub timeline and pain-to-anatomy" width="48%">
+</p>
+<p align="center"><sub><b>The Read</b> — glance at the analysis &nbsp;·&nbsp; <b>The Lab</b> — interrogate the motion</sub></p>
+
 > ⚠️ **Not a medical device.** Angles, loads, and anatomy are estimated from a single camera and are meant to help you *observe and describe* how you move — never to diagnose an injury or replace a licensed clinician.
 
 ## What it does
