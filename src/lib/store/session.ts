@@ -9,6 +9,8 @@ interface SessionState {
   mode: Mode;
   frames: RecordedFrame[];
   primaryJoint: string | null;
+  /** Unique id per finalized recording — used to save one history entry. */
+  recordingId: string | null;
   selectedIndex: number;
   isPlaying: boolean;
 
@@ -38,6 +40,7 @@ export const useSession = create<SessionState>((set) => ({
   mode: "live",
   frames: [],
   primaryJoint: null,
+  recordingId: null,
   selectedIndex: 0,
   isPlaying: false,
   painMarkers: [],
@@ -48,6 +51,7 @@ export const useSession = create<SessionState>((set) => ({
       mode: "review",
       frames,
       primaryJoint,
+      recordingId: newId(),
       selectedIndex: 0,
       isPlaying: false,
       painMarkers: [],
@@ -59,6 +63,7 @@ export const useSession = create<SessionState>((set) => ({
       mode: "live",
       frames: [],
       primaryJoint: null,
+      recordingId: null,
       selectedIndex: 0,
       isPlaying: false,
       painMarkers: [],
