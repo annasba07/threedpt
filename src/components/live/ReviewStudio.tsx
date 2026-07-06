@@ -15,6 +15,7 @@ import { coach, type Coaching, type Severity } from "@/lib/analysis/coach";
 import AnatomyPanel from "./AnatomyPanel";
 import { painColor } from "@/lib/pose/pain";
 import { useSession } from "@/lib/store/session";
+import { saveSession, sessionsForMovement, type SessionSummary } from "@/lib/store/history";
 import AngleChart from "./AngleChart";
 
 const Body3D = dynamic(() => import("./Body3D"), {
@@ -77,6 +78,7 @@ function heroStat(m: MovementMetrics, c: Coaching): { value: string; unit: strin
 export default function ReviewStudio() {
   const frames = useSession((s) => s.frames);
   const primaryJoint = useSession((s) => s.primaryJoint) ?? JOINT_ANGLES[0].id;
+  const recordingId = useSession((s) => s.recordingId);
   const selectedIndex = useSession((s) => s.selectedIndex);
   const isPlaying = useSession((s) => s.isPlaying);
   const setSelectedIndex = useSession((s) => s.setSelectedIndex);
@@ -105,7 +107,9 @@ export default function ReviewStudio() {
   const [layersOpen, setLayersOpen] = useState(false);
   const [anatomyOpen, setAnatomyOpen] = useState(false);
   const [showAllJoints, setShowAllJoints] = useState(false);
+  const [history, setHistory] = useState<SessionSummary[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const savedRef = useRef<string | null>(null);
 
   const series = useMemo(() => extractSeries(frames, primaryJoint), [frames, primaryJoint]);
   const reps = useMemo(() => detectReps(frames, primaryJoint), [frames, primaryJoint]);
@@ -131,6 +135,26 @@ export default function ReviewStudio() {
   const { metrics, coaching } = analysis;
   const topSeverity: Severity = coaching.findings[0]?.severity ?? "good";
   const hero = heroStat(metrics, coaching);
+  const movement = metrics.primaryLabel.replace(/^[LR] /, "");
+
+  // Save one history entry per recording, then load this movement's trend.
+  useEffect(() => {
+    if (!recordingId || savedRef.current === recordingId || frames.length === 0) return;
+    savedRef.current = recordingId;
+    saveSession({
+      id: recordingId,
+      ts: Date.now(),
+      movement,
+      reps: metrics.reps,
+      rangeDeg: Math.round(metrics.primaryRange),
+      asymmetryDeg: metrics.asymmetries[0] ? Math.round(metrics.asymmetries[0].diff) : null,
+      tempoRatio: metrics.tempo ? metrics.tempo.ratio : null,
+      peakLoadNm: dyn.peak[primaryJoint] ? Math.round(dyn.peak[primaryJoint]) : null,
+      pain: null,
+    });
+    setHistory(sessionsForMovement(movement));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingId]);
 
   // The frame that best shows the story: the pain moment, else the hardest rep.
   const keyFrameIndex = useMemo(() => {
@@ -260,6 +284,10 @@ export default function ReviewStudio() {
   // ---- THE READ ---------------------------------------------------------
   if (stage === "read") {
     const secondary = coaching.findings.slice(1);
+    const asymTrend = history.map((h) => h.asymmetryDeg).filter((v): v is number => v != null);
+    const rangeTrend = history.map((h) => h.rangeDeg).filter((v): v is number => v != null);
+    const loadTrend = history.map((h) => h.peakLoadNm).filter((v): v is number => v != null);
+    const showProgress = history.length >= 2;
     return (
       <div className="mx-auto max-w-3xl">
         {/* Session header */}
@@ -362,6 +390,25 @@ export default function ReviewStudio() {
             sub={metrics.tempo ? (metrics.tempo.ratio > 1 ? "lift slower" : "return slower") : "steady"}
           />
         </div>
+
+        {/* Progress — how this movement is trending across sessions */}
+        {showProgress && (
+          <div className="rise mt-4 card-soft p-5" style={{ animationDelay: "185ms" }}>
+            <div className="flex items-baseline justify-between">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+                Progress
+              </div>
+              <div className="text-[12px] text-stone-400">
+                {history.length} sessions · {movement.toLowerCase()}
+              </div>
+            </div>
+            <div className="mt-3 grid gap-5 sm:grid-cols-3">
+              <ProgressStat label="Asymmetry" values={asymTrend} unit="°" goodDir="down" />
+              <ProgressStat label="Range" values={rangeTrend} unit="°" goodDir="up" />
+              <ProgressStat label="Peak load" values={loadTrend} unit=" N·m" goodDir="none" />
+            </div>
+          </div>
+        )}
 
         {/* Secondary findings — quiet rows */}
         {secondary.length > 0 && (
@@ -843,6 +890,68 @@ function StatTile({ label, value, sub, viz }: { label: string; value: string; su
       {sub && <div className="mt-1.5 text-[11px] text-stone-400">{sub}</div>}
     </div>
   );
+}
+
+function ProgressStat({
+  label,
+  values,
+  unit,
+  goodDir,
+}: {
+  label: string;
+  values: number[];
+  unit: string;
+  goodDir: "up" | "down" | "none";
+}) {
+  if (values.length < 2) return null;
+  const first = values[0];
+  const last = values[values.length - 1];
+  const delta = last - first;
+  const improved = goodDir === "none" ? null : goodDir === "down" ? delta < 0 : delta > 0;
+  const tag = improved == null ? "text-stone-400" : improved ? "text-teal-600" : "text-amber-600";
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-[0.12em] text-stone-400">{label}</div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+        <span className="font-display text-2xl leading-none text-stone-900 tabular-nums">
+          {Math.round(last)}
+          {unit}
+        </span>
+        <span className={`text-[11px] font-medium ${tag}`}>
+          {delta > 0 ? "+" : ""}
+          {Math.round(delta)}
+          {unit.trim()}
+          {improved == null ? "" : improved ? " · better" : " · watch"}
+        </span>
+      </div>
+      <Spark values={values} improved={improved} />
+    </div>
+  );
+}
+
+function Spark({ values, improved }: { values: number[]; improved: boolean | null }) {
+  const w = 92;
+  const h = 26;
+  const mn = Math.min(...values);
+  const mx = Math.max(...values);
+  const rng = mx - mn || 1;
+  const at = (v: number, i: number): [number, number] => [
+    values.length === 1 ? w : (i / (values.length - 1)) * w,
+    h - ((v - mn) / rng) * (h - 4) - 2,
+  ];
+  const pts = values.map((v, i) => at(v, i).join(",")).join(" ");
+  const [lx, ly] = at(last(values), values.length - 1);
+  const stroke = improved == null ? "#a8a29e" : improved ? "#0d9488" : "#d97706";
+  return (
+    <svg width={w} height={h} className="mt-2 overflow-visible">
+      <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lx} cy={ly} r="2.5" fill={stroke} />
+    </svg>
+  );
+}
+
+function last<T>(a: T[]): T {
+  return a[a.length - 1];
 }
 
 function TempoBar({ up, down }: { up: number; down: number }) {
