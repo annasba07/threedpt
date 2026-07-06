@@ -11,6 +11,7 @@ import { smooth } from "@/lib/pose/math";
 import { pickPrimaryJoint } from "@/lib/pose/reps";
 import type { FrameLandmark, RecordedFrame } from "@/lib/pose/types";
 import { useSession } from "@/lib/store/session";
+import { LiveCoach, type LiveState } from "@/lib/analysis/realtime";
 
 type CameraStatus = "idle" | "starting" | "live" | "denied" | "error";
 
@@ -42,6 +43,10 @@ export default function LiveCapture() {
   const [isRecording, setIsRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   const [tooShort, setTooShort] = useState(false);
+  const [live, setLive] = useState<LiveState | null>(null);
+
+  const coachRef = useRef<LiveCoach | null>(null);
+  const liveRef = useRef<LiveState | null>(null);
 
   const lastVideoTimeRef = useRef(-1);
   const lastResultRef = useRef<PoseLandmarkerResult | null>(null);
@@ -80,6 +85,8 @@ export default function LiveCapture() {
     setPersonVisible(false);
     setAngles({});
     setIsRecording(false);
+    setLive(null);
+    coachRef.current = null;
   }, []);
 
   const startCamera = useCallback(async () => {
@@ -89,6 +96,9 @@ export default function LiveCapture() {
     imageSmootherRef.current = new LandmarkSmoother(33, 2);
     worldSmootherRef.current = new LandmarkSmoother(33, 3);
     lastSmoothedRef.current = null;
+    coachRef.current = new LiveCoach();
+    liveRef.current = null;
+    setLive(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
@@ -119,6 +129,9 @@ export default function LiveCapture() {
     imageSmootherRef.current = new LandmarkSmoother(33, 2);
     worldSmootherRef.current = new LandmarkSmoother(33, 3);
     lastSmoothedRef.current = null;
+    coachRef.current = new LiveCoach();
+    liveRef.current = null;
+    setLive(null);
     try {
       const src = document.createElement("video");
       src.src = "/demo/exercise.mp4";
@@ -216,6 +229,7 @@ export default function LiveCapture() {
             const world = worldSmootherRef.current.process(rawWorld, vis, now);
             const angles = computeFrameAngles(world, image);
             lastSmoothedRef.current = { image, world, angles };
+            if (coachRef.current) liveRef.current = coachRef.current.push(angles, now);
 
             if (recordingRef.current && recordBufferRef.current.length < MAX_FRAMES) {
               recordBufferRef.current.push({
@@ -243,6 +257,7 @@ export default function LiveCapture() {
           lastUiFlushRef.current = now;
           setFps(Math.round(fpsRef.current));
           setPersonVisible(Boolean(smoothed));
+          setLive(liveRef.current);
           if (smoothed) {
             const display: Record<string, number | null> = {};
             for (const def of JOINT_ANGLES) {
@@ -272,11 +287,12 @@ export default function LiveCapture() {
   const canStart =
     modelStatus === "ready" && cameraStatus !== "live" && cameraStatus !== "starting";
   const mirrorClass = mirrored ? "-scale-x-100" : "";
+  const activeAngle = live?.activeJoint ? angles[live.activeJoint] ?? null : null;
 
   return (
     <div className="flex flex-col gap-5 lg:flex-row">
       <div className="flex-1">
-        <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-stone-200 bg-stone-900 shadow-sm">
+        <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-stone-900 shadow-[0_2px_8px_rgba(74,56,30,0.1),0_24px_48px_-24px_rgba(74,56,30,0.3)]">
           <video
             ref={videoRef}
             playsInline
@@ -332,16 +348,44 @@ export default function LiveCapture() {
           )}
 
           {cameraStatus === "live" && (
-            <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 text-[11px] font-medium">
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 backdrop-blur ${
-                  personVisible ? "bg-emerald-500/20 text-emerald-200" : "bg-yellow-500/20 text-yellow-100"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${personVisible ? "bg-emerald-400" : "bg-yellow-300"}`} />
-                {personVisible ? "Tracking you" : "Step into frame"}
-              </span>
-            </div>
+            <>
+              <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 text-[11px] font-medium">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 backdrop-blur ${
+                    personVisible ? "bg-emerald-500/20 text-emerald-200" : "bg-yellow-500/20 text-yellow-100"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${personVisible ? "bg-emerald-400" : "bg-yellow-300"}`} />
+                  {personVisible ? "Tracking you" : "Step into frame"}
+                </span>
+              </div>
+
+              {/* Live rep counter */}
+              <div className="pointer-events-none absolute bottom-3 left-3 flex items-end gap-1.5 rounded-2xl bg-black/55 px-3.5 py-2 backdrop-blur">
+                <span className="font-display text-3xl leading-none text-white tabular-nums">{live?.reps ?? 0}</span>
+                <span className="pb-0.5 text-[11px] text-white/60">
+                  reps{live?.activeLabel ? ` · ${live.activeLabel.toLowerCase()}` : ""}
+                </span>
+              </div>
+
+              {/* Live coaching cue */}
+              {personVisible && live?.cue && (
+                <div
+                  className={`pointer-events-none absolute bottom-3 left-1/2 flex max-w-[70%] -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold text-white shadow-lg backdrop-blur transition ${
+                    live.cue.tone === "warn"
+                      ? "bg-red-500/90"
+                      : live.cue.tone === "info"
+                        ? "bg-amber-500/90"
+                        : "bg-teal-500/90"
+                  }`}
+                >
+                  <span className="text-white/90">
+                    {live.cue.tone === "warn" ? "⚠" : live.cue.tone === "info" ? "→" : "✓"}
+                  </span>
+                  {live.cue.text}
+                </div>
+              )}
+            </>
           )}
 
           {isRecording && (
@@ -408,7 +452,51 @@ export default function LiveCapture() {
       </div>
 
       {/* Live readouts */}
-      <div className="w-full lg:w-80">
+      <div className="w-full space-y-4 lg:w-80">
+        {cameraStatus === "live" && (
+          <div className="card-soft p-4">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold text-stone-800">Live coaching</h2>
+              <span className="text-[11px] text-stone-400">{personVisible ? "tracking" : "step in"}</span>
+            </div>
+            <div className="mt-3 flex items-end gap-5">
+              <div>
+                <div className="font-display text-4xl leading-none text-stone-900 tabular-nums">
+                  {live?.reps ?? 0}
+                </div>
+                <div className="text-[11px] uppercase tracking-[0.12em] text-stone-400">reps</div>
+              </div>
+              {live?.activeLabel && (
+                <div className="pb-0.5">
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-stone-400">{live.activeLabel}</div>
+                  <div className="font-display text-2xl leading-none text-stone-800 tabular-nums">
+                    {activeAngle != null ? `${Math.round(activeAngle)}°` : "—"}
+                  </div>
+                </div>
+              )}
+            </div>
+            {live?.cue && (
+              <div
+                className={`mt-4 flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-[13px] font-medium ${
+                  live.cue.tone === "warn"
+                    ? "bg-red-50 text-red-700"
+                    : live.cue.tone === "info"
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-teal-50 text-teal-700"
+                }`}
+              >
+                <span>{live.cue.tone === "warn" ? "⚠" : live.cue.tone === "info" ? "→" : "✓"}</span>
+                {live.cue.text}
+              </div>
+            )}
+            <p className="mt-3 text-[11px] leading-relaxed text-stone-400">
+              Cues update as you move. Hit{" "}
+              <span className="font-medium text-stone-600">Record movement</span> to save a set
+              for the full analysis.
+            </p>
+          </div>
+        )}
+
         <div className="card-soft p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-stone-800">Joint angles</h2>
@@ -418,25 +506,31 @@ export default function LiveCapture() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             {JOINT_ANGLES.map((def) => (
-              <AngleCard key={def.id} def={def} value={angles[def.id] ?? null} />
+              <AngleCard
+                key={def.id}
+                def={def}
+                value={angles[def.id] ?? null}
+                active={live?.activeJoint === def.id}
+              />
             ))}
           </div>
-          <p className="mt-4 text-[11px] leading-relaxed text-stone-400">
-            Record a movement to scrub through it frame by frame, count reps, and
-            see how each joint angle changes over the motion.
-          </p>
+          {cameraStatus !== "live" && (
+            <p className="mt-4 text-[11px] leading-relaxed text-stone-400">
+              Start the camera to see live joint angles, rep counts, and form cues as you move.
+            </p>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function AngleCard({ def, value }: { def: JointAngleDef; value: number | null }) {
+function AngleCard({ def, value, active }: { def: JointAngleDef; value: number | null; active?: boolean }) {
   const tracked = value !== null;
   return (
     <div
-      className={`rounded-xl border px-3 py-2 transition ${
-        tracked ? "border-stone-200 bg-stone-50" : "border-stone-100 bg-transparent"
+      className={`rounded-xl px-3 py-2 transition ${
+        active ? "bg-teal-50 ring-1 ring-teal-300" : tracked ? "bg-stone-50" : "bg-transparent"
       }`}
     >
       <div className="text-[11px] font-medium text-stone-500">{def.label}</div>
