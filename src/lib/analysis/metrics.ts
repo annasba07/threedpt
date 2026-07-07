@@ -31,9 +31,12 @@ export interface Asymmetry {
 }
 
 export interface Tempo {
-  upMs: number; // avg time from rep start to peak
-  downMs: number; // avg time from peak to rep end
-  ratio: number; // up / down
+  upMs: number; // avg duration of the "out" phase (rest → extreme), hold excluded
+  downMs: number; // avg duration of the "back" phase (extreme → rest)
+  ratio: number; // upMs / downMs
+  /** Direction-aware names so a squat reads "lowering / rising", a curl "raising / lowering". */
+  awayLabel: string;
+  backLabel: string;
 }
 
 export interface PainContext {
@@ -102,22 +105,47 @@ export function computeMetrics(
   let tempo: Tempo | undefined;
   let amplitudeTrendPct: number | undefined;
   if (reps.length) {
-    let up = 0;
-    let down = 0;
+    const ps = extractSeries(frames, primaryJoint);
+    // Which extreme is "rest"? The posture the movement starts and ends at.
+    // Rest-high (e.g. standing knee for a squat) ⇒ the working phase FLEXES;
+    // rest-low (e.g. arm-down for a curl) ⇒ the working phase EXTENDS.
+    const restIsMax =
+      (ps.filled[0] + ps.filled[ps.filled.length - 1]) / 2 > (ps.min + ps.max) / 2;
+    const extreme = restIsMax ? ps.min : ps.max;
+    const band = Math.max(2, ps.range * 0.06); // treat "at the extreme" as a dwell, not a point
+
+    let away = 0; // rest → extreme
+    let back = 0; // extreme → rest
     let n = 0;
     for (const r of reps) {
-      const u = r.peakT - r.startT;
-      const d = r.endT - r.peakT;
-      if (u > 0 && d > 0) {
-        up += u;
-        down += d;
+      // First/last frame the signal dwells at the extreme — excludes any hold
+      // so a pause at the bottom isn't misattributed to one phase.
+      let enter = -1;
+      let exit = -1;
+      for (let k = r.startFrame; k <= r.endFrame; k++) {
+        if (Math.abs(ps.filled[k] - extreme) <= band) {
+          if (enter < 0) enter = k;
+          exit = k;
+        }
+      }
+      if (enter < 0) {
+        enter = r.peakFrame;
+        exit = r.peakFrame;
+      }
+      const a = frames[enter].t - frames[r.startFrame].t;
+      const b = frames[r.endFrame].t - frames[exit].t;
+      if (a > 0 && b > 0) {
+        away += a;
+        back += b;
         n++;
       }
     }
     if (n) {
-      const upMs = up / n;
-      const downMs = down / n;
-      tempo = { upMs, downMs, ratio: upMs / downMs };
+      const upMs = away / n;
+      const downMs = back / n;
+      const awayLabel = restIsMax ? "lowering" : "raising";
+      const backLabel = restIsMax ? "rising" : "lowering";
+      tempo = { upMs, downMs, ratio: upMs / downMs, awayLabel, backLabel };
     }
     if (reps.length >= 3) {
       const a0 = reps[0].amplitude;

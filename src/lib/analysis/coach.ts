@@ -51,22 +51,23 @@ export function coach(m: MovementMetrics): Coaching {
 
   // Tempo (up vs down)
   if (m.tempo && m.tempo.ratio > 0 && Number.isFinite(m.tempo.ratio)) {
-    const { ratio, upMs, downMs } = m.tempo;
+    const { ratio, upMs, downMs, awayLabel, backLabel } = m.tempo;
     if (ratio > 1.4 || ratio < 0.7) {
-      const faster = ratio < 1 ? "return" : "lift";
+      // ratio < 1 ⇒ the "away" phase took less time, so it is the faster one.
+      const fasterLabel = ratio < 1 ? awayLabel : backLabel;
       const factor = ratio < 1 ? 1 / ratio : ratio;
       findings.push({
         id: "tempo",
         severity: "notice",
-        title: `Uneven tempo — ${faster} ${factor.toFixed(1)}× faster`,
-        detail: `On average your lift took ${(upMs / 1000).toFixed(1)}s and your return ${(downMs / 1000).toFixed(1)}s. A rushed ${faster} usually means you're using momentum rather than control.`,
+        title: `Uneven tempo — ${fasterLabel} ${factor.toFixed(1)}× faster`,
+        detail: `On average your ${awayLabel} took ${(upMs / 1000).toFixed(1)}s and your ${backLabel} ${(downMs / 1000).toFixed(1)}s. Rushing the ${fasterLabel} usually means momentum rather than control.`,
       });
     } else {
       findings.push({
         id: "tempo-ok",
         severity: "good",
         title: "Smooth, even tempo",
-        detail: `Your lift and return took about the same time (${(upMs / 1000).toFixed(1)}s vs ${(downMs / 1000).toFixed(1)}s) — nicely controlled.`,
+        detail: `Your ${awayLabel} and ${backLabel} took about the same time (${(upMs / 1000).toFixed(1)}s vs ${(downMs / 1000).toFixed(1)}s) — nicely controlled.`,
       });
     }
   }
@@ -112,7 +113,8 @@ export function coach(m: MovementMetrics): Coaching {
     plan.push(`Add some single-side ${asy.label.toLowerCase()} mobility and control work on your ${weakSide} to close the ${r(asy.diff)}° gap.`);
   }
   if (m.tempo && (m.tempo.ratio > 1.4 || m.tempo.ratio < 0.7)) {
-    plan.push(`Slow down the rushed phase so your lift and return take about the same time — it builds control and cuts momentum.`);
+    const rushed = m.tempo.ratio < 1 ? m.tempo.awayLabel : m.tempo.backLabel;
+    plan.push(`Slow the ${rushed} so it matches the other phase — even tempo builds control and cuts momentum.`);
   }
   if (m.amplitudeTrendPct != null && m.amplitudeTrendPct <= -12) {
     plan.push(`Your range dropped off late in the set — fewer reps or more rest will keep each one full and honest.`);
