@@ -12,6 +12,7 @@ import { pickPrimaryJoint } from "@/lib/pose/reps";
 import type { FrameLandmark, RecordedFrame } from "@/lib/pose/types";
 import { useSession } from "@/lib/store/session";
 import { LiveCoach, type LiveState } from "@/lib/analysis/realtime";
+import { ASSESSMENTS, assessmentById } from "@/lib/assessments/catalog";
 
 type CameraStatus = "idle" | "starting" | "live" | "denied" | "error";
 
@@ -27,6 +28,8 @@ export default function LiveCapture() {
   const { landmarker, status: modelStatus, error: modelError, delegate } =
     usePoseLandmarker();
   const loadRecording = useSession((s) => s.loadRecording);
+  const assessment = useSession((s) => s.assessment);
+  const setAssessment = useSession((s) => s.setAssessment);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -288,9 +291,39 @@ export default function LiveCapture() {
     modelStatus === "ready" && cameraStatus !== "live" && cameraStatus !== "starting";
   const mirrorClass = mirrored ? "-scale-x-100" : "";
   const activeAngle = live?.activeJoint ? angles[live.activeJoint] ?? null : null;
+  const activeAssessment = assessmentById(assessment);
+  const chip = (on: boolean) =>
+    `rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${
+      on ? "bg-teal-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+    }`;
 
   return (
-    <div className="flex flex-col gap-5 lg:flex-row">
+    <div>
+      {/* Guided-assessment picker */}
+      <div className="mb-4 card-soft p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">
+            Movement
+          </span>
+          <button onClick={() => setAssessment(null)} className={chip(assessment === null)}>
+            Free record
+          </button>
+          {ASSESSMENTS.map((a) => (
+            <button key={a.id} onClick={() => setAssessment(a.id)} className={chip(assessment === a.id)}>
+              {a.name}
+            </button>
+          ))}
+        </div>
+        {activeAssessment && (
+          <p className="mt-2.5 text-[13px] leading-relaxed text-stone-500">
+            <span className="font-medium text-stone-700">{activeAssessment.short}.</span>{" "}
+            {activeAssessment.cue}{" "}
+            <span className="text-stone-400">Aim for ~{activeAssessment.reps} reps.</span>
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-5 lg:flex-row">
       <div className="flex-1">
         <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-stone-900 shadow-[0_2px_8px_rgba(74,56,30,0.1),0_24px_48px_-24px_rgba(74,56,30,0.3)]">
           <video
@@ -359,6 +392,12 @@ export default function LiveCapture() {
                   {personVisible ? "Tracking you" : "Step into frame"}
                 </span>
               </div>
+
+              {activeAssessment && (
+                <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-white backdrop-blur">
+                  {activeAssessment.name}
+                </div>
+              )}
 
               {/* Live rep counter */}
               <div className="pointer-events-none absolute bottom-3 left-3 flex items-end gap-1.5 rounded-2xl bg-black/55 px-3.5 py-2 backdrop-blur">
@@ -520,6 +559,7 @@ export default function LiveCapture() {
             </p>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
