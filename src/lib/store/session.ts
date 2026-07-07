@@ -11,6 +11,8 @@ interface SessionState {
   primaryJoint: string | null;
   /** Unique id per finalized recording — used to save one history entry. */
   recordingId: string | null;
+  /** Chosen guided assessment id, or null for a free-form recording. */
+  assessment: string | null;
   selectedIndex: number;
   isPlaying: boolean;
 
@@ -24,6 +26,7 @@ interface SessionState {
   setSelectedIndex: (i: number) => void;
   setPlaying: (playing: boolean) => void;
   setPrimaryJoint: (jointId: string) => void;
+  setAssessment: (id: string | null) => void;
 
   addPainMarker: (marker: Omit<PainMarker, "id">) => string;
   updatePainMarker: (id: string, patch: Partial<PainMarker>) => void;
@@ -41,6 +44,7 @@ export const useSession = create<SessionState>((set) => ({
   frames: [],
   primaryJoint: null,
   recordingId: null,
+  assessment: null,
   selectedIndex: 0,
   isPlaying: false,
   painMarkers: [],
@@ -73,6 +77,7 @@ export const useSession = create<SessionState>((set) => ({
   setSelectedIndex: (i) => set({ selectedIndex: i }),
   setPlaying: (playing) => set({ isPlaying: playing }),
   setPrimaryJoint: (jointId) => set({ primaryJoint: jointId }),
+  setAssessment: (id) => set({ assessment: id }),
 
   addPainMarker: (marker) => {
     const id = newId();

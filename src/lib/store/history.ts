@@ -19,10 +19,12 @@ export interface SessionSummary {
   asymmetryDeg: number | null;
   tempoRatio: number | null;
   peakLoadNm: number | null;
+  /** Guided-assessment form score (0–100), or null for a free recording. */
+  score: number | null;
   pain: { region: string; intensity: number } | null;
 }
 
-export type MetricKey = "asymmetryDeg" | "rangeDeg" | "peakLoadNm" | "reps" | "tempoRatio";
+export type MetricKey = "asymmetryDeg" | "rangeDeg" | "peakLoadNm" | "reps" | "tempoRatio" | "score";
 
 const KEY = "threedpt.history.v1";
 const MAX = 300;
