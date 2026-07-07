@@ -425,7 +425,7 @@ export default function ReviewStudio() {
             label="Tempo"
             value={metrics.tempo ? `${metrics.tempo.ratio >= 1 ? metrics.tempo.ratio.toFixed(1) : (1 / metrics.tempo.ratio).toFixed(1)}×` : "—"}
             viz={metrics.tempo ? <TempoBar up={metrics.tempo.upMs} down={metrics.tempo.downMs} /> : undefined}
-            sub={metrics.tempo ? (metrics.tempo.ratio > 1 ? "lift slower" : "return slower") : "steady"}
+            sub={metrics.tempo ? `${metrics.tempo.ratio > 1 ? metrics.tempo.awayLabel : metrics.tempo.backLabel} slower` : "steady"}
           />
         </div>
 
