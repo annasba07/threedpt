@@ -16,6 +16,8 @@ import AnatomyPanel from "./AnatomyPanel";
 import { painColor } from "@/lib/pose/pain";
 import { useSession } from "@/lib/store/session";
 import { saveSession, sessionsForMovement, type SessionSummary } from "@/lib/store/history";
+import { assessmentById } from "@/lib/assessments/catalog";
+import { scoreAssessment } from "@/lib/assessments/score";
 import AngleChart from "./AngleChart";
 
 const Body3D = dynamic(() => import("./Body3D"), {
@@ -79,6 +81,7 @@ export default function ReviewStudio() {
   const frames = useSession((s) => s.frames);
   const primaryJoint = useSession((s) => s.primaryJoint) ?? JOINT_ANGLES[0].id;
   const recordingId = useSession((s) => s.recordingId);
+  const assessmentId = useSession((s) => s.assessment);
   const selectedIndex = useSession((s) => s.selectedIndex);
   const isPlaying = useSession((s) => s.isPlaying);
   const setSelectedIndex = useSession((s) => s.setSelectedIndex);
@@ -135,7 +138,10 @@ export default function ReviewStudio() {
   const { metrics, coaching } = analysis;
   const topSeverity: Severity = coaching.findings[0]?.severity ?? "good";
   const hero = heroStat(metrics, coaching);
-  const movement = metrics.primaryLabel.replace(/^[LR] /, "");
+  const assessment = assessmentById(assessmentId);
+  const assessmentScore = assessment ? scoreAssessment(metrics, assessment) : null;
+  // Assessments trend under their own name so it's apples-to-apples.
+  const movement = assessment ? assessment.name : metrics.primaryLabel.replace(/^[LR] /, "");
 
   // Save one history entry per recording, then load this movement's trend.
   useEffect(() => {
@@ -150,6 +156,7 @@ export default function ReviewStudio() {
       asymmetryDeg: metrics.asymmetries[0] ? Math.round(metrics.asymmetries[0].diff) : null,
       tempoRatio: metrics.tempo ? metrics.tempo.ratio : null,
       peakLoadNm: dyn.peak[primaryJoint] ? Math.round(dyn.peak[primaryJoint]) : null,
+      score: assessmentScore ? assessmentScore.score : null,
       pain: null,
     });
     setHistory(sessionsForMovement(movement));
@@ -287,16 +294,20 @@ export default function ReviewStudio() {
     const asymTrend = history.map((h) => h.asymmetryDeg).filter((v): v is number => v != null);
     const rangeTrend = history.map((h) => h.rangeDeg).filter((v): v is number => v != null);
     const loadTrend = history.map((h) => h.peakLoadNm).filter((v): v is number => v != null);
+    const scoreTrend = history.map((h) => h.score).filter((v): v is number => v != null);
     const showProgress = history.length >= 2;
+    const hasScoreTrend = scoreTrend.length >= 2;
     return (
       <div className="mx-auto max-w-3xl">
         {/* Session header */}
         <div className="rise mb-5 flex items-end justify-between" style={{ animationDelay: "0ms" }}>
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
-              This session
+              {assessment ? "Assessment" : "This session"}
             </div>
-            <div className="font-display text-xl leading-tight text-stone-900">{sessionTitle}</div>
+            <div className="font-display text-xl leading-tight text-stone-900">
+              {assessment ? assessment.name : sessionTitle}
+            </div>
           </div>
           <button
             onClick={reset}
@@ -305,6 +316,33 @@ export default function ReviewStudio() {
             New recording
           </button>
         </div>
+
+        {/* Assessment form score */}
+        {assessment && assessmentScore && (
+          <div className="rise mb-4 card-soft p-5 sm:p-6" style={{ animationDelay: "40ms" }}>
+            <div className="flex flex-wrap items-center justify-between gap-5">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+                  Form score
+                </div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="font-display text-5xl leading-none text-stone-900 tabular-nums">
+                    {assessmentScore.score}
+                  </span>
+                  <span className="text-stone-400">/100</span>
+                  <span className={`ml-1 text-sm font-semibold ${gradeColor(assessmentScore.grade)}`}>
+                    {assessmentScore.grade}
+                  </span>
+                </div>
+              </div>
+              <div className="grid w-full max-w-[240px] gap-2">
+                <ScoreBar label="Range" v={assessmentScore.range} />
+                <ScoreBar label="Symmetry" v={assessmentScore.symmetry} />
+                <ScoreBar label="Tempo" v={assessmentScore.tempo} />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Hero — verdict + one numeral, beside the reconstructed body */}
         <section
@@ -402,7 +440,8 @@ export default function ReviewStudio() {
                 {history.length} sessions · {movement.toLowerCase()}
               </div>
             </div>
-            <div className="mt-3 grid gap-5 sm:grid-cols-3">
+            <div className={`mt-3 grid grid-cols-2 gap-5 ${hasScoreTrend ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+              {hasScoreTrend && <ProgressStat label="Form score" values={scoreTrend} unit="" goodDir="up" />}
               <ProgressStat label="Asymmetry" values={asymTrend} unit="°" goodDir="down" />
               <ProgressStat label="Range" values={rangeTrend} unit="°" goodDir="up" />
               <ProgressStat label="Peak load" values={loadTrend} unit=" N·m" goodDir="none" />
@@ -952,6 +991,27 @@ function Spark({ values, improved }: { values: number[]; improved: boolean | nul
 
 function last<T>(a: T[]): T {
   return a[a.length - 1];
+}
+
+function gradeColor(grade: string): string {
+  return grade === "Excellent" || grade === "Good"
+    ? "text-teal-600"
+    : grade === "Fair"
+      ? "text-amber-600"
+      : "text-red-600";
+}
+
+function ScoreBar({ label, v }: { label: string; v: number }) {
+  const pct = Math.round(v * 100);
+  const color = v >= 0.85 ? "bg-teal-500" : v >= 0.6 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-16 shrink-0 text-[11px] text-stone-400">{label}</span>
+      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-stone-100">
+        <span className={`block h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </span>
+    </div>
+  );
 }
 
 function TempoBar({ up, down }: { up: number; down: number }) {
